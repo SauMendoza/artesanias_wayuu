@@ -1,8 +1,10 @@
 <?php
+require_once 'includes/verificar_sesion.php';
 require_once 'config/conexion.php';
 
 $fechaInicio = $_GET['fecha_inicio'] ?? '';
 $fechaFin    = $_GET['fecha_fin'] ?? '';
+$idArtesanoProc = filter_input(INPUT_GET, 'id_artesano', FILTER_VALIDATE_INT);
 
 $condicionFecha = "";
 $params = [];
@@ -20,109 +22,103 @@ $resumen = ['total_ventas' => 0, 'ingresos' => 0, 'ticket_promedio' => 0];
 $porMetodo = [];
 $topProductos = [];
 $porArtesano = [];
+$porCategoriaCte = [];
+$listaArtesanos = [];
+$detalleArtesanoSP = null;
 
 try {
-    $sqlResumen = "SELECT COUNT(v.id_venta) AS total_ventas,
-                          COALESCE(SUM(v.total), 0) AS ingresos,
-                          COALESCE(AVG(v.total), 0) AS ticket_promedio
-                   FROM venta v
-                   WHERE 1=1 $condicionFecha";
-    $stmtRes = $conexion->prepare($sqlResumen);
+    $listaArtesanos = $conexion->query("SELECT id_artesano, CONCAT(nombre, ' ', apellido) AS nombre FROM artesano ORDER BY nombre ASC")->fetchAll();
+
+    // 1. Resumen general
+    $stmtRes = $conexion->prepare("SELECT COUNT(v.id_venta) AS total_ventas, COALESCE(SUM(v.total), 0) AS ingresos, COALESCE(AVG(v.total), 0) AS ticket_promedio FROM venta v WHERE 1=1 $condicionFecha");
     $stmtRes->execute($params);
     $filaRes = $stmtRes->fetch();
-    if ($filaRes) {
-        $resumen = $filaRes;
-    }
+    if ($filaRes) $resumen = $filaRes;
 
-    $sqlMetodo = "SELECT v.metodo_pago,
-                         COUNT(v.id_venta) AS cantidad,
-                         COALESCE(SUM(v.total), 0) AS total
-                  FROM venta v
-                  WHERE 1=1 $condicionFecha
-                  GROUP BY v.metodo_pago
-                  ORDER BY total DESC";
-    $stmtMet = $conexion->prepare($sqlMetodo);
+    // 2. Por método de pago
+    $stmtMet = $conexion->prepare("SELECT v.metodo_pago, COUNT(v.id_venta) AS cantidad, COALESCE(SUM(v.total), 0) AS total FROM venta v WHERE 1=1 $condicionFecha GROUP BY v.metodo_pago ORDER BY total DESC");
     $stmtMet->execute($params);
     $porMetodo = $stmtMet->fetchAll();
 
-    $sqlProd = "SELECT p.nombre AS producto,
-                       c.nombre AS categoria,
-                       SUM(dp.cantidad) AS unidades_vendidas,
-                       SUM(dp.subtotal) AS total_generado
-                FROM venta v
-                INNER JOIN pedido ped ON v.id_pedido = ped.id_pedido
-                INNER JOIN detalle_pedido dp ON ped.id_pedido = dp.id_pedido
-                INNER JOIN producto p ON dp.id_producto = p.id_producto
-                INNER JOIN categoria c ON p.id_categoria = c.id_categoria
-                WHERE 1=1 $condicionFecha
-                GROUP BY p.id_producto, p.nombre, c.nombre
-                ORDER BY unidades_vendidas DESC, total_generado DESC";
-    $stmtProd = $conexion->prepare($sqlProd);
+    // 3. Productos más vendidos
+    $stmtProd = $conexion->prepare("
+        SELECT p.nombre AS producto, c.nombre AS categoria, SUM(dp.cantidad) AS unidades_vendidas, SUM(dp.subtotal) AS total_generado
+        FROM venta v
+        INNER JOIN pedido ped ON v.id_pedido = ped.id_pedido
+        INNER JOIN detalle_pedido dp ON ped.id_pedido = dp.id_pedido
+        INNER JOIN producto p ON dp.id_producto = p.id_producto
+        INNER JOIN categoria c ON p.id_categoria = c.id_categoria
+        WHERE 1=1 $condicionFecha
+        GROUP BY p.id_producto, p.nombre, c.nombre
+        ORDER BY unidades_vendidas DESC, total_generado DESC
+    ");
     $stmtProd->execute($params);
     $topProductos = $stmtProd->fetchAll();
 
-    $sqlArt = "SELECT CONCAT(a.nombre, ' ', a.apellido) AS artesano,
-                      COALESCE(a.comunidad, '-') AS comunidad,
-                      SUM(dp.cantidad) AS piezas_vendidas,
-                      SUM(dp.subtotal) AS total_ventas
-               FROM venta v
-               INNER JOIN pedido ped ON v.id_pedido = ped.id_pedido
-               INNER JOIN detalle_pedido dp ON ped.id_pedido = dp.id_pedido
-               INNER JOIN producto p ON dp.id_producto = p.id_producto
-               INNER JOIN artesano a ON p.id_artesano = a.id_artesano
-               WHERE 1=1 $condicionFecha
-               GROUP BY a.id_artesano, a.nombre, a.apellido, a.comunidad
-               ORDER BY total_ventas DESC";
-    $stmtArt = $conexion->prepare($sqlArt);
+    // 4. Ventas por artesano
+    $stmtArt = $conexion->prepare("
+        SELECT CONCAT(a.nombre, ' ', a.apellido) AS artesano, COALESCE(a.comunidad, '-') AS comunidad, SUM(dp.cantidad) AS piezas_vendidas, SUM(dp.subtotal) AS total_ventas
+        FROM venta v
+        INNER JOIN pedido ped ON v.id_pedido = ped.id_pedido
+        INNER JOIN detalle_pedido dp ON ped.id_pedido = dp.id_pedido
+        INNER JOIN producto p ON dp.id_producto = p.id_producto
+        INNER JOIN artesano a ON p.id_artesano = a.id_artesano
+        WHERE 1=1 $condicionFecha
+        GROUP BY a.id_artesano, a.nombre, a.apellido, a.comunidad
+        ORDER BY total_ventas DESC
+    ");
     $stmtArt->execute($params);
     $porArtesano = $stmtArt->fetchAll();
+
+    // 5. Consulta con CTE (Participación porcentual por categoría)
+    $sqlCte = "WITH VentasPorCategoria AS (
+                   SELECT c.id_categoria, c.nombre AS categoria, SUM(dp.cantidad) AS unidades, SUM(dp.subtotal) AS ingresos
+                   FROM venta v
+                   INNER JOIN pedido ped ON v.id_pedido = ped.id_pedido
+                   INNER JOIN detalle_pedido dp ON ped.id_pedido = dp.id_pedido
+                   INNER JOIN producto p ON dp.id_producto = p.id_producto
+                   INNER JOIN categoria c ON p.id_categoria = c.id_categoria
+                   WHERE 1=1 $condicionFecha
+                   GROUP BY c.id_categoria, c.nombre
+               ),
+               TotalGeneral AS (
+                   SELECT COALESCE(SUM(ingresos), 0) AS gran_total FROM VentasPorCategoria
+               )
+               SELECT vc.categoria, vc.unidades, vc.ingresos,
+                      CASE WHEN tg.gran_total > 0 THEN ROUND((vc.ingresos / tg.gran_total) * 100, 2) ELSE 0 END AS porcentaje
+               FROM VentasPorCategoria vc
+               CROSS JOIN TotalGeneral tg
+               ORDER BY vc.ingresos DESC";
+    $stmtCte = $conexion->prepare($sqlCte);
+    $stmtCte->execute($params);
+    $porCategoriaCte = $stmtCte->fetchAll();
+
+    // 6. Consulta individual mediante Procedimiento Almacenado (CALL sp_reporte_artesano)
+    if ($idArtesanoProc && $idArtesanoProc > 0) {
+        $fIniSP = $fechaInicio !== '' ? $fechaInicio : '2000-01-01';
+        $fFinSP = $fechaFin !== '' ? $fechaFin : '2099-12-31';
+        $stmtSP = $conexion->prepare("CALL sp_reporte_artesano(:id_art, :f_ini, :f_fin)");
+        $stmtSP->execute([':id_art' => $idArtesanoProc, ':f_ini' => $fIniSP, ':f_fin' => $fFinSP]);
+        $detalleArtesanoSP = $stmtSP->fetch();
+        $stmtSP->closeCursor();
+    }
 
 } catch (PDOException $e) {
     error_log("Error al generar reportes: " . $e->getMessage());
 }
 
-$labelsMetodo = [];
-$datosMetodo  = [];
-foreach ($porMetodo as $m) {
-    $labelsMetodo[] = ucfirst($m['metodo_pago']);
-    $datosMetodo[]  = (float)$m['total'];
-}
+$labelsMetodo = []; $datosMetodo = [];
+foreach ($porMetodo as $m) { $labelsMetodo[] = ucfirst($m['metodo_pago']); $datosMetodo[] = (float)$m['total']; }
 
-$labelsProd = [];
-$datosProd  = [];
-foreach ($topProductos as $p) {
-    $labelsProd[] = $p['producto'];
-    $datosProd[]  = (int)$p['unidades_vendidas'];
-}
+$labelsProd = []; $datosProd = [];
+foreach ($topProductos as $p) { $labelsProd[] = $p['producto']; $datosProd[] = (int)$p['unidades_vendidas']; }
 
-$labelsArt = [];
-$datosArt  = [];
-foreach ($porArtesano as $a) {
-    $labelsArt[] = $a['artesano'];
-    $datosArt[]  = (float)$a['total_ventas'];
-}
+$labelsArt = []; $datosArt = [];
+foreach ($porArtesano as $a) { $labelsArt[] = $a['artesano']; $datosArt[] = (float)$a['total_ventas']; }
 
 $tituloPagina = 'Reportes - Artesanías Wayúu';
 require_once 'includes/header.php';
 ?>
-<style>
-    .resumen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 30px; }
-    .kpi-card { background: #fdfaf7; border: 1px solid #e6d8cc; border-left: 5px solid #753b24; padding: 18px; border-radius: 6px; }
-    .kpi-card span { display: block; font-size: 13px; color: #666; margin-bottom: 6px; font-weight: bold; }
-    .kpi-card strong { font-size: 24px; color: #753b24; }
-    .graficas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin-bottom: 35px; }
-    .caja-grafica { background: #fff; border: 1px solid #e6d8cc; border-radius: 8px; padding: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
-    .caja-grafica h4 { margin: 0 0 14px 0; color: #753b24; font-size: 15px; text-align: center; }
-    .canvas-wrapper { position: relative; height: 250px; width: 100%; }
-    .seccion-reporte { margin-top: 32px; }
-    .seccion-reporte h3 { color: #753b24; border-bottom: 2px solid #f2ebe5; padding-bottom: 8px; margin-bottom: 14px; font-size: 18px; }
-    @media print {
-        header, nav, footer, .filtros, .no-print { display: none !important; }
-        .contenedor { box-shadow: none; width: 100%; margin: 0; padding: 0; }
-        .graficas-grid { grid-template-columns: 1fr 1fr; }
-    }
-</style>
-
 <div class="contenedor">
     <div class="barra-superior">
         <h2>Reportes Comerciales y Estadísticas</h2>
@@ -138,11 +134,31 @@ require_once 'includes/header.php';
             <label for="fecha_fin" style="font-size: 13px; font-weight: bold; color: #753b24;">Hasta:</label>
             <input type="date" id="fecha_fin" name="fecha_fin" value="<?= htmlspecialchars($fechaFin) ?>">
         </div>
+        <div>
+            <label for="id_artesano" style="font-size: 13px; font-weight: bold; color: #753b24;">Consultar Artesano (SP):</label>
+            <select id="id_artesano" name="id_artesano">
+                <option value="">-- Todos --</option>
+                <?php foreach ($listaArtesanos as $la): ?>
+                    <option value="<?= (int)$la['id_artesano'] ?>" <?= (int)$idArtesanoProc === (int)$la['id_artesano'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($la['nombre']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
         <button type="submit" class="btn btn-buscar">Generar</button>
-        <?php if ($fechaInicio !== '' || $fechaFin !== ''): ?>
+        <?php if ($fechaInicio !== '' || $fechaFin !== '' || $idArtesanoProc): ?>
             <a href="reportes.php" class="btn btn-limpiar">Limpiar filtro</a>
         <?php endif; ?>
     </form>
+
+    <?php if ($detalleArtesanoSP): ?>
+        <div class="alerta alerta-exito" style="background: #fdfaf7; border-color: #753b24; color: #333;">
+            <strong>Resultado Procedimiento Almacenado (<?= htmlspecialchars($detalleArtesanoSP['artesano']) ?>):</strong>
+            Ventas participadas: <strong><?= (int)$detalleArtesanoSP['ventas_participadas'] ?></strong> |
+            Piezas vendidas: <strong><?= (int)$detalleArtesanoSP['total_piezas_vendidas'] ?></strong> |
+            Ingresos generados: <strong style="color: #27ae60;">$<?= number_format((float)$detalleArtesanoSP['ingresos_generados'], 0, ',', '.') ?></strong>
+        </div>
+    <?php endif; ?>
 
     <div class="resumen-grid">
         <div class="kpi-card"><span>Ventas Realizadas</span><strong><?= (int)$resumen['total_ventas'] ?></strong></div>
@@ -168,7 +184,28 @@ require_once 'includes/header.php';
     <?php endif; ?>
 
     <div class="seccion-reporte">
-        <h3>1. Ventas por Método de Pago</h3>
+        <h3>1. Participación por Categoría (Consulta CTE)</h3>
+        <table>
+            <thead><tr><th>Categoría</th><th>Unidades Vendidas</th><th>Ingresos</th><th>Participación (%)</th></tr></thead>
+            <tbody>
+                <?php if (empty($porCategoriaCte)): ?>
+                    <tr><td colspan="4" style="text-align: center; padding: 15px;">Sin datos para el período seleccionado.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($porCategoriaCte as $catCte): ?>
+                        <tr>
+                            <td><strong><?= htmlspecialchars($catCte['categoria']) ?></strong></td>
+                            <td><?= (int)$catCte['unidades'] ?></td>
+                            <td>$<?= number_format((float)$catCte['ingresos'], 0, ',', '.') ?></td>
+                            <td><span class="badge badge-ok"><?= number_format((float)$catCte['porcentaje'], 2) ?>%</span></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="seccion-reporte">
+        <h3>2. Ventas por Método de Pago</h3>
         <table>
             <thead><tr><th>Método de Pago</th><th>Cantidad de Ventas</th><th>Total Recaudado</th></tr></thead>
             <tbody>
@@ -188,7 +225,7 @@ require_once 'includes/header.php';
     </div>
 
     <div class="seccion-reporte">
-        <h3>2. Productos Más Vendidos</h3>
+        <h3>3. Productos Más Vendidos</h3>
         <table>
             <thead><tr><th>Producto</th><th>Categoría</th><th>Unidades Vendidas</th><th>Total Generado</th></tr></thead>
             <tbody>
@@ -209,7 +246,7 @@ require_once 'includes/header.php';
     </div>
 
     <div class="seccion-reporte">
-        <h3>3. Ventas por Artesano</h3>
+        <h3>4. Ventas por Artesano</h3>
         <table>
             <thead><tr><th>Artesano</th><th>Comunidad</th><th>Piezas Vendidas</th><th>Total Generado</th></tr></thead>
             <tbody>
@@ -240,6 +277,4 @@ window.datosReportes = {
     datosArt:     <?= json_encode($datosArt) ?>
 };
 </script>
-
 <?php require_once 'includes/footer.php'; ?>
-
