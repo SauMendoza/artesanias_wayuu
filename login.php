@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['nombre_usuario'] = $usuario['nombre'];
                 $_SESSION['rol_usuario'] = $usuario['rol'];
 
-                header('Location: index.php');
+                header('Location: dashboard.php');
                 exit;
             } else {
                 $error = 'Correo o contraseña incorrectos, o usuario inactivo.';
