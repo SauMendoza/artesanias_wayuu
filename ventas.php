@@ -58,7 +58,7 @@ require_once 'includes/header.php';
                         <td>$<?= number_format((float)$v['total'], 0, ',', '.') ?></td>
                         <td class="acciones">
                             <a href="detalle_venta.php?id=<?= (int)$v['id_venta'] ?>" class="btn btn-ver">Detalle</a>
-                            <a href="comprobante_venta.php?id=<?= (int)$v['id_venta'] ?>" class="btn btn-editar" target="_blank">Comprobante</a>
+                            <a href="comprobante_ventas.php?id=<?= (int)$v['id_venta'] ?>" class="btn btn-editar" target="_blank">Comprobante</a>
                         </td>
                     </tr>
                 <?php } ?>
