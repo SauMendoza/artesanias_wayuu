@@ -3,7 +3,7 @@ session_start();
 require_once 'config/conexion.php';
 
 if (isset($_SESSION['id_usuario'])) {
-    header('Location: index.php');
+    header('Location: dashboard.php');
     exit;
 }
 
