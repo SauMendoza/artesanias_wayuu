@@ -1,16 +1,15 @@
 <?php
+require_once 'includes/verificar_sesion.php';
 require_once 'config/conexion.php';
 
-$sql = "SELECT v.id_venta, v.id_pedido, v.fecha_venta, v.metodo_pago, v.total, c.nombre AS cliente
-        FROM venta v
-        INNER JOIN pedido p ON v.id_pedido = p.id_pedido
-        INNER JOIN cliente c ON p.id_cliente = c.id_cliente
-        ORDER BY v.id_venta DESC";
+$sql = "SELECT id_venta, id_pedido, fecha_venta, metodo_pago, total, cliente 
+        FROM vw_resumen_ventas 
+        ORDER BY id_venta DESC";
 
 try {
     $ventas = $conexion->query($sql)->fetchAll();
 } catch (PDOException $e) {
-    error_log("Error al listar ventas: " . $e->getMessage());
+    error_log("Error al listar ventas desde vista: " . $e->getMessage());
     $ventas = [];
 }
 
@@ -26,11 +25,11 @@ require_once 'includes/header.php';
         <a href="registrar_venta.php" class="btn btn-nuevo">+ Registrar Venta</a>
     </div>
 
-    <?php if ($mensaje !== '') { ?>
+    <?php if ($mensaje !== ''): ?>
         <div class="alerta <?= $tipo === 'exito' ? 'alerta-exito' : 'alerta-error' ?>">
             <?= htmlspecialchars($mensaje) ?>
         </div>
-    <?php } ?>
+    <?php endif; ?>
 
     <table>
         <thead>
@@ -45,10 +44,10 @@ require_once 'includes/header.php';
             </tr>
         </thead>
         <tbody>
-            <?php if (empty($ventas)) { ?>
+            <?php if (empty($ventas)): ?>
                 <tr><td colspan="7" style="text-align: center; padding: 20px;">No se encontraron ventas registradas.</td></tr>
-            <?php } else { ?>
-                <?php foreach ($ventas as $v) { ?>
+            <?php else: ?>
+                <?php foreach ($ventas as $v): ?>
                     <tr>
                         <td>#<?= (int)$v['id_venta'] ?></td>
                         <td>#<?= (int)$v['id_pedido'] ?></td>
@@ -61,16 +60,10 @@ require_once 'includes/header.php';
                             <a href="comprobante_venta.php?id=<?= (int)$v['id_venta'] ?>" class="btn btn-editar" target="_blank">Comprobante</a>
                         </td>
                     </tr>
-                <?php } ?>
-            <?php } ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </tbody>
     </table>
 </div>
 
 <?php require_once 'includes/footer.php'; ?>
-
-
-
-
-
-
