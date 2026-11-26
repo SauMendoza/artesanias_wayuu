@@ -168,9 +168,9 @@ try {
 
 <div class="barra-tienda">
     <div>
-        <a href="tienda.php">Todas las artesanías</a>
+        <a href="index.php">Todas las artesanías</a>
         <?php foreach ($categorias as $cat): ?>
-            <a href="tienda.php?categoria=<?= (int)$cat['id_categoria'] ?>"><?= htmlspecialchars($cat['nombre']) ?></a>
+            <a href="index.php?categoria=<?= (int)$cat['id_categoria'] ?>"><?= htmlspecialchars($cat['nombre']) ?></a>
         <?php endforeach; ?>
     </div>
     <div>
@@ -185,7 +185,7 @@ try {
         </div>
     <?php endif; ?>
 
-    <form method="GET" action="tienda.php" class="filtros" style="background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+    <form method="GET" action="index.php" class="filtros" style="background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
         <input type="text" name="buscar" placeholder="Buscar mochilas, chinchorros, materiales..." value="<?= htmlspecialchars($busqueda) ?>" style="flex: 1; min-width: 240px;">
         <select name="categoria">
             <option value="">Todas las categorías</option>
@@ -197,14 +197,13 @@ try {
         </select>
         <button type="submit" class="btn btn-buscar">Buscar</button>
         <?php if ($busqueda !== '' || $catFiltro !== ''): ?>
-            <a href="tienda.php" class="btn btn-limpiar">Ver todo</a>
+            <a href="index.php" class="btn btn-limpiar">Ver todo</a>
         <?php endif; ?>
     </form>
-
     <?php if (empty($productos)): ?>
         <div style="background: #fff; padding: 40px; text-align: center; border-radius: 8px; margin-top: 20px;">
             <h3 style="color: #753b24;">No encontramos artesanías disponibles con ese filtro.</h3>
-            <a href="tienda.php" class="btn btn-buscar">Ver catálogo completo</a>
+            <a href="index.php" class="btn btn-buscar">Ver catálogo completo</a>
         </div>
     <?php else: ?>
         <div class="catalogo-grid">
@@ -252,7 +251,7 @@ try {
             <button type="button" onclick="cerrarModalPedido()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #666;">&times;</button>
         </div>
 
-        <form method="POST" action="tienda.php">
+        <form method="POST" action="index.php">
             <input type="hidden" name="realizar_pedido" value="1">
             <input type="hidden" name="id_producto" id="modalIdProducto">
 
@@ -300,4 +299,3 @@ function cerrarModalPedido() {
 </script>
 
 <?php require_once 'includes/footer.php'; ?>
-
