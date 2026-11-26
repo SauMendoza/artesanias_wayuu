@@ -17,10 +17,14 @@ $opciones = [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 ];
 
-// Azure Database for MySQL exige TLS por defecto (DB_SSL=1 en App Service)
+// Azure Database for MySQL exige TLS por defecto (DB_SSL=1 en App Service).
+// PHP 8.4+ usa Pdo\Mysql::ATTR_*; las PDO::MYSQL_ATTR_* quedan obsoletas en 8.5.
 if (getenv('DB_SSL') === '1') {
-    $opciones[PDO::MYSQL_ATTR_SSL_CA] = getenv('DB_SSL_CA') ?: '/etc/ssl/certs/ca-certificates.crt';
-    $opciones[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+    $nuevo = defined('Pdo\Mysql::ATTR_SSL_CA');
+    $attrCa     = $nuevo ? constant('Pdo\Mysql::ATTR_SSL_CA') : PDO::MYSQL_ATTR_SSL_CA;
+    $attrVerify = $nuevo ? constant('Pdo\Mysql::ATTR_SSL_VERIFY_SERVER_CERT') : PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT;
+    $opciones[$attrCa]     = getenv('DB_SSL_CA') ?: '/etc/ssl/certs/ca-certificates.crt';
+    $opciones[$attrVerify] = true;
 }
 
 try {
@@ -32,6 +36,12 @@ try {
     );
 } catch (PDOException $e) {
     error_log('Error de conexion a la BD: ' . $e->getMessage());
+    if (getenv('DB_DEBUG') === '1') {
+        // Sin código 500: Azure lo intercepta y lo muestra como "404 Not Found"
+        die('<pre>Error de conexion: ' . htmlspecialchars($e->getMessage())
+            . "\nhost=$host puerto=$puerto bd=$basedatos usuario=$usuario ssl="
+            . (getenv('DB_SSL') === '1' ? 'si' : 'no') . '</pre>');
+    }
     http_response_code(500);
     die('No fue posible conectar con la base de datos.');
 }
