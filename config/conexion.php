@@ -6,10 +6,10 @@
  * Si no existen, usa los valores de desarrollo local (XAMPP).
  */
 
-$host      = getenv('DB_HOST') ?: '127.0.0.1';
-$puerto    = getenv('DB_PORT') ?: '3309';
+$host      = getenv('DB_HOST') ?: 'artesaniasdb.mysql.database.azure.com';
+$puerto    = getenv('DB_PORT') ?: '3306';
 $basedatos = getenv('DB_NAME') ?: 'artesanias_wayuu';
-$usuario   = getenv('DB_USER') ?: 'root';
+$usuario   = getenv('DB_USER') ?: 'alexys';
 $password  = getenv('DB_PASS') !== false ? getenv('DB_PASS') : '';
 
 $opciones = [
