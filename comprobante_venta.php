@@ -1,280 +1,124 @@
 <?php
-require_once 'verificar_sesion.php';
+require_once 'includes/verificar_sesion.php';
+require_once 'config/conexion.php';
 
-require_once "config/conexion.php";
+$idVenta = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 
-// Obtener ID de venta
-$id_venta = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
-
-if ($id_venta <= 0) {
-    die("Número de venta no válido.");
+if (!$idVenta || $idVenta <= 0) {
+    die("ID de venta no válido.");
 }
 
-// Consultar venta y cliente
-$sqlVenta = "SELECT v.id_venta,
-                    v.fecha_venta,
-                    v.metodo_pago,
-                    v.total,
-                    p.id_pedido,
-                    c.nombre AS cliente,
-                    c.documento,
-                    c.telefono
-             FROM venta v
-             INNER JOIN pedido p ON v.id_pedido = p.id_pedido
-             INNER JOIN cliente c ON p.id_cliente = c.id_cliente
-             WHERE v.id_venta = ?";
+try {
+    $sqlVenta = "SELECT v.id_venta, v.id_pedido, v.fecha_venta, v.metodo_pago, v.total,
+                        c.nombre AS cliente, c.documento, c.telefono, c.correo, c.direccion
+                 FROM venta v
+                 INNER JOIN pedido p ON v.id_pedido = p.id_pedido
+                 INNER JOIN cliente c ON p.id_cliente = c.id_cliente
+                 WHERE v.id_venta = :id LIMIT 1";
+    $stmt = $conexion->prepare($sqlVenta);
+    $stmt->execute([':id' => $idVenta]);
+    $venta = $stmt->fetch();
 
-$consultaVenta = $conexion->prepare($sqlVenta);
-$consultaVenta->execute([$id_venta]);
-$venta = $consultaVenta->fetch();
+    if (!$venta) {
+        die("El comprobante solicitado no existe.");
+    }
 
-if (!$venta) {
-    die("La venta no existe.");
+    $sqlDetalle = "SELECT dp.cantidad, dp.precio_unitario, dp.subtotal, p.nombre AS producto
+                   FROM detalle_pedido dp
+                   INNER JOIN producto p ON dp.id_producto = p.id_producto
+                   WHERE dp.id_pedido = :id_pedido";
+    $stmtDet = $conexion->prepare($sqlDetalle);
+    $stmtDet->execute([':id_pedido' => (int)$venta['id_pedido']]);
+    $detalles = $stmtDet->fetchAll();
+
+} catch (PDOException $e) {
+    error_log("Error al generar comprobante: " . $e->getMessage());
+    die("Error interno al cargar el comprobante.");
 }
-
-// Consultar productos vendidos
-$sqlDetalles = "SELECT pr.nombre AS producto,
-                       dp.cantidad,
-                       dp.precio_unitario,
-                       dp.subtotal
-                FROM detalle_pedido dp
-                INNER JOIN producto pr
-                    ON dp.id_producto = pr.id_producto
-                WHERE dp.id_pedido = ?";
-
-$consultaDetalles = $conexion->prepare($sqlDetalles);
-$consultaDetalles->execute([$venta["id_pedido"]]);
-$detalles = $consultaDetalles->fetchAll();
 ?>
-
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Comprobante de venta</title>
-
+    <title>Comprobante de Venta #<?= (int)$venta['id_venta'] ?> - Artesanías Wayúu</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #eee;
-            padding: 30px;
-            color: #333;
-        }
-
-        .comprobante {
-            max-width: 750px;
-            margin: auto;
-            background: white;
-            padding: 35px;
-            border-radius: 8px;
-        }
-
-        .encabezado {
-            text-align: center;
-            border-bottom: 2px solid #287a45;
-            padding-bottom: 20px;
-            margin-bottom: 25px;
-        }
-
-        .encabezado h1 {
-            color: #287a45;
-            margin-bottom: 5px;
-        }
-
-        .datos p {
-            margin: 10px 0;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 25px;
-        }
-
-        th, td {
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
-            text-align: left;
-        }
-
-        th {
-            background: #287a45;
-            color: white;
-        }
-
-        .total {
-            text-align: right;
-            font-size: 22px;
-            font-weight: bold;
-            margin-top: 25px;
-        }
-
-        .pie {
-            text-align: center;
-            margin-top: 35px;
-            border-top: 1px solid #ddd;
-            padding-top: 20px;
-        }
-
-        .botones {
-            text-align: center;
-            margin-top: 25px;
-        }
-
-        .boton {
-            display: inline-block;
-            padding: 12px 20px;
-            background: #287a45;
-            color: white;
-            text-decoration: none;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin: 5px;
-        }
-
-        .volver {
-            background: #555;
-        }
-
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; color: #333; }
+        .factura { max-width: 720px; margin: 0 auto; background: #fff; padding: 35px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-top: 6px solid #753b24; }
+        .encabezado { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f2ebe5; padding-bottom: 18px; margin-bottom: 20px; }
+        .encabezado h1 { margin: 0; color: #753b24; font-size: 24px; }
+        .encabezado p { margin: 4px 0 0; font-size: 13px; color: #666; }
+        .info-venta { text-align: right; font-size: 14px; }
+        .datos-cliente { background: #fdfaf7; padding: 15px; border-radius: 6px; margin-bottom: 22px; font-size: 14px; line-height: 1.6; border-left: 4px solid #d9822b; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 22px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid #e0e0e0; text-align: left; font-size: 14px; }
+        th { background: #f2ebe5; color: #753b24; }
+        .derecha { text-align: right; }
+        .total-box { text-align: right; font-size: 20px; font-weight: bold; color: #287a45; margin-top: 10px; }
+        .acciones { text-align: center; margin-top: 30px; display: flex; justify-content: center; gap: 12px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; font-weight: bold; cursor: pointer; text-decoration: none; color: #fff; }
+        .btn-imprimir { background: #287a45; }
+        .btn-cerrar { background: #6c757d; }
         @media print {
-            body {
-                background: white;
-                padding: 0;
-            }
-
-            .comprobante {
-                box-shadow: none;
-                max-width: 100%;
-                padding: 15px;
-            }
-
-            .botones {
-                display: none;
-            }
+            body { background: #fff; padding: 0; }
+            .factura { box-shadow: none; border-top: none; padding: 0; }
+            .acciones { display: none !important; }
         }
     </style>
 </head>
-
 <body>
 
-<div class="comprobante">
-
+<div class="factura">
     <div class="encabezado">
-
-        <h1>ARTESANÍAS WAYUU</h1>
-
-        <p>Comprobante de venta</p>
-
-        <h3>Venta #<?= $venta["id_venta"] ?></h3>
-
+        <div>
+            <h1>ARTESANÍAS WAYÚU</h1>
+            <p>Plataforma de comercialización de productos artesanales<br>La Guajira, Colombia</p>
+        </div>
+        <div class="info-venta">
+            <strong>COMPROBANTE DE VENTA</strong><br>
+            N.º Venta: <strong>#<?= (int)$venta['id_venta'] ?></strong><br>
+            Pedido Ref: #<?= (int)$venta['id_pedido'] ?><br>
+            Fecha: <?= htmlspecialchars($venta['fecha_venta']) ?>
+        </div>
     </div>
 
-    <div class="datos">
-
-        <p>
-            <strong>Cliente:</strong>
-            <?= htmlspecialchars($venta["cliente"]) ?>
-        </p>
-
-        <p>
-            <strong>Documento:</strong>
-            <?= htmlspecialchars($venta["documento"] ?? "No registrado") ?>
-        </p>
-
-        <p>
-            <strong>Teléfono:</strong>
-            <?= htmlspecialchars($venta["telefono"] ?? "No registrado") ?>
-        </p>
-
-        <p>
-            <strong>Fecha:</strong>
-            <?= htmlspecialchars($venta["fecha_venta"]) ?>
-        </p>
-
-        <p>
-            <strong>Método de pago:</strong>
-            <?= htmlspecialchars(ucfirst($venta["metodo_pago"])) ?>
-        </p>
-
-        <p>
-            <strong>Pedido:</strong>
-            #<?= $venta["id_pedido"] ?>
-        </p>
-
+    <div class="datos-cliente">
+        <strong>Cliente:</strong> <?= htmlspecialchars($venta['cliente']) ?><br>
+        <strong>Documento:</strong> <?= htmlspecialchars($venta['documento'] ?? 'No registrado') ?><br>
+        <strong>Teléfono:</strong> <?= htmlspecialchars($venta['telefono'] ?? 'No registrado') ?><br>
+        <strong>Dirección:</strong> <?= htmlspecialchars($venta['direccion'] ?? 'No registrada') ?><br>
+        <strong>Método de pago:</strong> <?= ucfirst(htmlspecialchars($venta['metodo_pago'])) ?>
     </div>
-
-    <h3>Productos vendidos</h3>
 
     <table>
-
         <thead>
             <tr>
                 <th>Producto</th>
-                <th>Cantidad</th>
-                <th>Precio unitario</th>
-                <th>Subtotal</th>
+                <th class="derecha">Cantidad</th>
+                <th class="derecha">Precio Unit.</th>
+                <th class="derecha">Subtotal</th>
             </tr>
         </thead>
-
         <tbody>
-
-            <?php foreach ($detalles as $detalle): ?>
-
+            <?php foreach ($detalles as $d): ?>
                 <tr>
-                    <td>
-                        <?= htmlspecialchars($detalle["producto"]) ?>
-                    </td>
-
-                    <td>
-                        <?= $detalle["cantidad"] ?>
-                    </td>
-
-                    <td>
-                        $<?= number_format($detalle["precio_unitario"], 0, ',', '.') ?>
-                    </td>
-
-                    <td>
-                        $<?= number_format($detalle["subtotal"], 0, ',', '.') ?>
-                    </td>
+                    <td><?= htmlspecialchars($d['producto']) ?></td>
+                    <td class="derecha"><?= (int)$d['cantidad'] ?></td>
+                    <td class="derecha">$<?= number_format((float)$d['precio_unitario'], 0, ',', '.') ?></td>
+                    <td class="derecha">$<?= number_format((float)$d['subtotal'], 0, ',', '.') ?></td>
                 </tr>
-
             <?php endforeach; ?>
-
         </tbody>
-
     </table>
 
-    <div class="total">
-
-        Total pagado:
-        $<?= number_format($venta["total"], 0, ',', '.') ?>
-
+    <div class="total-box">
+        TOTAL PAGADO: $<?= number_format((float)$venta['total'], 0, ',', '.') ?> COP
     </div>
 
-    <div class="pie">
-
-        <h3>¡Gracias por su compra!</h3>
-
-        <p>Artesanías Wayuu - Productos artesanales de nuestra cultura.</p>
-
+    <div class="acciones">
+        <button type="button" onclick="window.print()" class="btn btn-imprimir">Imprimir / Descargar PDF</button>
+        <button type="button" onclick="window.close()" class="btn btn-cerrar">Cerrar ventana</button>
     </div>
-
-    <div class="botones">
-
-        <button class="boton" onclick="window.print()">
-            Imprimir comprobante
-        </button>
-
-        <a href="ventas.php" class="boton volver">
-            Volver a ventas
-        </a>
-
-    </div>
-
 </div>
 
 </body>
