@@ -13,7 +13,7 @@
     <h1>ARTESANÍAS WAYÚU</h1>
     <p>Plataforma de comercialización de productos artesanales | Bienvenido, <strong><?= htmlspecialchars($_SESSION['nombre_usuario'] ?? 'Usuario') ?></strong></p>
     <nav>
-        <a href="index.php">Inicio</a>
+       <a href="dashboard.php">Inicio</a>
         <a href="artesanos.php">Artesanos</a>
         <a href="categorias.php">Categorías</a>
         <a href="productos.php">Productos</a>
